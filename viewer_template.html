@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>埋め込みモデル比較</title>
+<style>
+  :root{
+    --bg:#080b12; --panel:#0e1420; --line:#1c2739;
+    --cyan:#8fe3f0; --amber:#f0b35e; --green:#9fe08f;
+    --text:#c9d6e2; --muted:#5d7288;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);
+    font-family:"SF Mono","Cascadia Mono",ui-monospace,Menlo,monospace;
+    display:flex;flex-direction:column;overflow:hidden;
+    user-select:none;-webkit-user-select:none;}
+  header{padding:12px 16px 8px;border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:baseline}
+  header h1{font-size:13px;font-weight:600;letter-spacing:.14em;color:var(--cyan)}
+  header .sub{font-size:10px;color:var(--muted)}
+
+  #readout{padding:8px 16px 0;display:flex;align-items:baseline;gap:14px;min-height:44px}
+  #dimNum{font-size:24px;color:var(--amber);font-weight:600;min-width:104px}
+  #simBox{font-size:12px;line-height:1.5}
+  #simBox .a{color:var(--cyan)} #simBox .b{color:var(--amber)}
+  #simBox .big{font-size:16px;color:var(--text);font-weight:600}
+
+  #stage{position:relative;flex:1;min-height:0;touch-action:pan-y}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+  #angle{height:92px;position:relative;border-top:1px solid var(--line)}
+  #angleCv{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #angleHint{position:absolute;top:2px;left:12px;font-size:9px;color:var(--muted);pointer-events:none}
+
+  #strip{height:64px;position:relative;border-top:1px solid var(--line);touch-action:none}
+  #stripCv{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #stripHint{position:absolute;top:2px;left:12px;font-size:9px;color:var(--muted);pointer-events:none}
+
+  #controls{background:var(--panel);border-top:1px solid var(--line);
+    padding:10px 0 calc(12px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:8px}
+  .row{display:flex;align-items:center;gap:8px;padding:0 14px}
+  .cap{font-size:10px;color:var(--muted);letter-spacing:.1em;min-width:40px;flex:none}
+  .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .chips::-webkit-scrollbar{display:none}
+  button{font-family:inherit;font-size:12px;background:transparent;color:var(--text);
+    border:1px solid var(--line);border-radius:6px;height:34px;padding:0 10px;
+    cursor:pointer;flex:none}
+  button.on{border-color:var(--cyan);color:var(--cyan);
+    box-shadow:0 0 10px rgba(143,227,240,.18) inset}
+  button.cmp.on{border-color:var(--amber);color:var(--amber);
+    box-shadow:0 0 10px rgba(240,179,94,.18) inset}
+  button.mdl.on{border-color:var(--green);color:var(--green);
+    box-shadow:0 0 10px rgba(159,224,143,.18) inset}
+  #desc{font-size:10px;line-height:1.7;color:var(--muted);padding:0 14px}
+  #desc b{color:var(--text)}
+  #viewBtns button{min-width:64px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>埋め込みモデル比較</h1>
+  <div class="sub" id="modelSub"></div>
+</header>
+
+<div id="readout">
+  <div id="dimNum">dim 001</div>
+  <div id="simBox"></div>
+</div>
+
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<div id="angle">
+  <canvas id="angleCv"></canvas>
+  <div id="angleHint">各次元の一致度（下=一致 / 上=逆方向）・横線=2語全体の類似度をθに換算した参考線</div>
+</div>
+
+<div id="strip">
+  <canvas id="stripCv"></canvas>
+  <div id="stripHint" >全次元（なぞって移動）</div>
+</div>
+
+<div id="controls">
+  <div class="row"><span class="cap">モデル</span><div class="chips" id="mdlBtns"></div></div>
+  <div class="row" id="viewBtns">
+    <span class="cap">表示</span>
+    <button id="vScan" class="on">点列</button>
+    <button id="vAng">一致度</button>
+    <button id="vMap">地図</button>
+    <button id="playBtn" class="on" style="margin-left:auto">⏸</button>
+  </div>
+  <div class="row"><span class="cap">語</span><div class="chips" id="tokBtns"></div></div>
+  <div class="row"><span class="cap">比較</span><div class="chips" id="cmpBtns"></div></div>
+  <div id="desc">
+    同じ単語ペアでも<b>モデルを切り替えると類似度・角度・地図が変わります</b>。
+    絶対値ではなく「近いペアと遠いペアの差がどれだけ開くか（レンジの広さ）」に注目すると、
+    自分の用途に合うモデルの癖が見えます。
+  </div>
+</div>
+
+<script>
+const DATA = __DATA__;
+(() => {
+  const WORDS = DATA.words;
+  const MODELS = Object.keys(DATA.models);
+  let modelIdx = 0;
+
+  // per-model accessors
+  let M, DIMS, V, PCA, MAXABS, WINDOW;
+  function setModel(i){
+    modelIdx = i;
+    M = DATA.models[MODELS[i]];
+    DIMS = M.dims; V = M.vectors; PCA = M.pca; MAXABS = M.maxabs;
+    WINDOW = Math.min(24, DIMS);
+    pos = Math.min(pos, DIMS-1);
+    document.getElementById('modelSub').textContent =
+      MODELS[i] + ' ・ ' + DIMS + '次元';
+    document.getElementById('stripHint').textContent =
+      '全' + DIMS + '次元（なぞって移動）';
+    buildBtns();
+  }
+
+  let tokA = 0, tokB = WORDS.length>1 ? 1 : -1;
+  let pos = 0, playing = true;
+  let view = 'scan';
+
+  function cosSim(a,b){
+    const va=V[a], vb=V[b]; let s=0;
+    for(let i=0;i<DIMS;i++) s+=va[i]*vb[i];
+    return s;
+  }
+
+  // ---- UI ----
+  const mdlBtns=document.getElementById('mdlBtns');
+  const tokBtns=document.getElementById('tokBtns');
+  const cmpBtns=document.getElementById('cmpBtns');
+  const playBtn=document.getElementById('playBtn');
+  const dimNum=document.getElementById('dimNum');
+  const simBox=document.getElementById('simBox');
+  const vScan=document.getElementById('vScan');
+  const vAng=document.getElementById('vAng');
+  const vMap=document.getElementById('vMap');
+  const stripEl=document.getElementById('strip');
+  const angleEl=document.getElementById('angle');
+  const allV=[vScan,vAng,vMap];
+  function setView(v,btn){ view=v; allV.forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    const show = v==='scan' ? '' : 'none';
+    stripEl.style.display=show; angleEl.style.display=show;
+    resize(); }
+
+  function buildBtns(){
+    mdlBtns.innerHTML=''; tokBtns.innerHTML=''; cmpBtns.innerHTML='';
+    MODELS.forEach((nm,i)=>{
+      const b=document.createElement('button');
+      b.className='mdl'; b.textContent=nm;
+      if(i===modelIdx) b.classList.add('on');
+      b.onclick=()=>setModel(i);
+      mdlBtns.appendChild(b);
+    });
+    WORDS.forEach((wd,i)=>{
+      const b=document.createElement('button');
+      b.textContent=wd;
+      if(i===tokA) b.classList.add('on');
+      b.onclick=()=>{ tokA=i; if(tokB===i) tokB=-1; buildBtns(); };
+      tokBtns.appendChild(b);
+    });
+    const off=document.createElement('button');
+    off.className='cmp'; off.textContent='なし';
+    if(tokB<0) off.classList.add('on');
+    off.onclick=()=>{ tokB=-1; buildBtns(); };
+    cmpBtns.appendChild(off);
+    WORDS.forEach((wd,i)=>{
+      if(i===tokA) return;
+      const b=document.createElement('button');
+      b.className='cmp'; b.textContent=wd;
+      if(i===tokB) b.classList.add('on');
+      b.onclick=()=>{ tokB=(tokB===i?-1:i); buildBtns(); };
+      cmpBtns.appendChild(b);
+    });
+  }
+  playBtn.onclick=()=>{ playing=!playing;
+    playBtn.classList.toggle('on',playing);
+    playBtn.textContent=playing?'⏸':'▶'; };
+  vScan.onclick=()=>setView('scan',vScan);
+  vAng.onclick=()=>setView('ang',vAng);
+  vMap.onclick=()=>setView('map',vMap);
+
+  // ---- canvases ----
+  const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+  const scv=document.getElementById('stripCv'), sctx=scv.getContext('2d');
+  const acv=document.getElementById('angleCv'), actx=acv.getContext('2d');
+  function fit(c){ const r=c.parentElement.getBoundingClientRect();
+    const d=Math.min(devicePixelRatio||1,2);
+    c.width=r.width*d; c.height=r.height*d;
+    c.getContext('2d').setTransform(d,0,0,d,0,0); }
+  function resize(){ fit(cv); fit(scv); fit(acv); }
+  addEventListener('resize',resize);
+
+  // ---- scrub ----
+  function scrubTo(x,el){ const r=el.getBoundingClientRect();
+    pos=Math.max(0,Math.min(DIMS-1,(x-r.left)/r.width*DIMS)); }
+  let scrubbing=false;
+  stripEl.addEventListener('pointerdown',e=>{scrubbing=true; playing=false;
+    playBtn.classList.remove('on'); playBtn.textContent='▶';
+    scrubTo(e.clientX,stripEl); stripEl.setPointerCapture(e.pointerId);});
+  stripEl.addEventListener('pointermove',e=>{ if(scrubbing) scrubTo(e.clientX,stripEl); });
+  stripEl.addEventListener('pointerup',()=>scrubbing=false);
+
+  // tap on map selects nearest word as compare
+  cv.addEventListener('pointerdown',e=>{
+    if(view!=='map') return;
+    const r=cv.getBoundingClientRect();
+    const w=cv.clientWidth,h=cv.clientHeight;
+    const s=Math.min(w,h)*0.40, cx=w/2, cy=h*0.47;
+    let best=-1,bd=1e9;
+    WORDS.forEach((wd,i)=>{
+      const p=PCA[wd];
+      const x=cx+p[0]*s, y=cy-p[1]*s;
+      const d=(e.clientX-r.left-x)**2+(e.clientY-r.top-y)**2;
+      if(d<bd){bd=d;best=i;}
+    });
+    if(best>=0 && bd<45*45 && best!==tokA){
+      tokB=(tokB===best?-1:best); buildBtns();
+    }
+  });
+
+  // ---- draw helpers ----
+  function drawSeries(c2d, vec, x0, xStep, mid, amp, color, dotR, start, count, curDim, glow){
+    for(let i=0;i<=count;i++){
+      const d=Math.floor(start)+i;
+      if(d<0||d>=DIMS) continue;
+      const x=x0+(d-start)*xStep;
+      const y=mid-(vec[d]/MAXABS)*amp;
+      const isCur=d===curDim;
+      c2d.fillStyle=color.replace('ALPHA', isCur?'1':'0.8');
+      c2d.beginPath();
+      c2d.arc(x,y,isCur?dotR*1.9:dotR,0,6.2832);
+      c2d.fill();
+      if(isCur&&glow){
+        c2d.strokeStyle=color.replace('ALPHA','0.4'); c2d.lineWidth=1;
+        c2d.beginPath(); c2d.arc(x,y,dotR*3.2,0,6.2832); c2d.stroke();
+      }
+    }
+  }
+
+  // ---- render ----
+  let prev=performance.now();
+  function frame(t){
+    const dt=Math.min((t-prev)/1000,.05); prev=t;
+    if(playing && view==='scan') pos=(pos+dt*DIMS/50)%DIMS;
+
+    const w=cv.clientWidth,h=cv.clientHeight;
+    ctx.clearRect(0,0,w,h);
+    const A=V[WORDS[tokA]], B=tokB>=0?V[WORDS[tokB]]:null;
+
+    if(B){
+      const s=cosSim(WORDS[tokA],WORDS[tokB]);
+      simBox.innerHTML=`<span class="a">${WORDS[tokA]}</span> × <span class="b">${WORDS[tokB]}</span><br>類似度 <span class="big">${s.toFixed(3)}</span>`;
+    } else {
+      simBox.innerHTML=`<span class="a">${WORDS[tokA]}</span><br><span style="color:var(--muted)">比較語を選ぶと類似度を表示</span>`;
+    }
+
+    if(view==='scan'){
+      const colW=w/WINDOW, mid=h*0.52, amp=h*0.40;
+      const start=pos-WINDOW/2, curDim=Math.floor(pos);
+      ctx.strokeStyle='rgba(28,39,57,.9)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(0,mid); ctx.lineTo(w,mid); ctx.stroke();
+      const cx=(curDim-start)*colW;
+      ctx.fillStyle='rgba(240,179,94,.06)'; ctx.fillRect(cx,0,colW,h);
+      ctx.fillStyle='rgba(93,114,136,.8)'; ctx.font='9px monospace'; ctx.textAlign='center';
+      const lblStep=Math.max(1,Math.round(WINDOW/5));
+      for(let i=0;i<=WINDOW;i++){
+        const d=Math.floor(start)+i;
+        if(d<0||d>=DIMS||d%lblStep!==0) continue;
+        ctx.fillText(d+1,(d-start)*colW+colW/2,h-6);
+      }
+      if(B) drawSeries(ctx,B,colW/2,colW,mid,amp,'rgba(240,179,94,ALPHA)',3,start,WINDOW,curDim,true);
+      drawSeries(ctx,A,colW/2,colW,mid,amp,'rgba(143,227,240,ALPHA)',3,start,WINDOW,curDim,true);
+      dimNum.textContent='dim '+String(curDim+1).padStart(3,'0');
+
+      // strip overview
+      const sw=scv.clientWidth,sh=scv.clientHeight;
+      sctx.clearRect(0,0,sw,sh);
+      const smid=sh*0.55,samp=sh*0.34,sstep=sw/DIMS;
+      sctx.strokeStyle='rgba(28,39,57,.9)';
+      sctx.beginPath(); sctx.moveTo(0,smid); sctx.lineTo(sw,smid); sctx.stroke();
+      const sr=Math.max(0.5, Math.min(1.1, 260/DIMS));
+      if(B) drawSeries(sctx,B,sstep/2,sstep,smid,samp,'rgba(240,179,94,ALPHA)',sr,0,DIMS-1,-1,false);
+      drawSeries(sctx,A,sstep/2,sstep,smid,samp,'rgba(143,227,240,ALPHA)',sr,0,DIMS-1,-1,false);
+      sctx.strokeStyle='rgba(201,214,226,.7)'; sctx.lineWidth=1;
+      sctx.strokeRect(Math.max(0,start/DIMS*sw),12,(WINDOW/DIMS)*sw,sh-16);
+      sctx.fillStyle='#f0b35e';
+      sctx.fillRect(pos/DIMS*sw-1,11,2,sh-14);
+    }
+    else if(view==='ang'){ // per-dimension angle scatter (a_k, b_k)
+      dimNum.textContent='一致度';
+      const s=Math.min(w,h)*0.40, cx=w/2, cy=h*0.47;
+      ctx.strokeStyle='rgba(28,39,57,.9)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(0,cy); ctx.lineTo(w,cy);
+      ctx.moveTo(cx,0); ctx.lineTo(cx,h); ctx.stroke();
+      ctx.font='10px monospace'; ctx.textAlign='right';
+      ctx.fillStyle='#8fe3f0'; ctx.fillText(WORDS[tokA]+' の値 →', w-10, cy-6);
+      if(B){ ctx.fillStyle='#f0b35e'; ctx.textAlign='left';
+        ctx.fillText('↑ '+WORDS[tokB]+' の値', cx+8, 14); }
+      if(!B){
+        ctx.fillStyle='rgba(93,114,136,.7)'; ctx.textAlign='center';
+        ctx.fillText('比較語を選んでください', cx, cy-20);
+      } else {
+        ctx.setLineDash([5,5]);
+        ctx.strokeStyle='rgba(143,227,240,.35)';
+        ctx.beginPath(); ctx.moveTo(cx-s,cy+s); ctx.lineTo(cx+s,cy-s); ctx.stroke();
+        ctx.strokeStyle='rgba(240,179,94,.25)';
+        ctx.beginPath(); ctx.moveTo(cx-s,cy-s); ctx.lineTo(cx+s,cy+s); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle='rgba(143,227,240,.6)'; ctx.font='9px monospace'; ctx.textAlign='left';
+        ctx.fillText('一致線', cx+s*0.5, cy-s*0.5-8);
+        const scale=s/MAXABS;
+        for(let k=0;k<DIMS;k++){
+          const x=cx+A[k]*scale, y=cy-B[k]*scale;
+          const agree = 1 - Math.min(1, Math.abs(A[k]-B[k])/(MAXABS*0.8));
+          const r=210+Math.round((143-210)*agree);
+          const g=120+Math.round((227-120)*agree);
+          const b2=90+Math.round((240-90)*agree);
+          ctx.fillStyle=`rgba(${r},${g},${b2},.85)`;
+          ctx.beginPath(); ctx.arc(x,y,2.4,0,6.2832); ctx.fill();
+        }
+        ctx.fillStyle='rgba(93,114,136,.7)'; ctx.font='9px monospace'; ctx.textAlign='left';
+        ctx.fillText('1点＝1次元（全'+DIMS+'点）。一致線に沿うほど2語は近い', 10, h-8);
+      }
+    }
+    else { // map view (PCA)
+      dimNum.textContent='PCA 2D';
+      const s=Math.min(w,h)*0.40, cx=w/2, cy=h*0.47;
+      ctx.strokeStyle='rgba(28,39,57,.9)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(0,cy); ctx.lineTo(w,cy);
+      ctx.moveTo(cx,0); ctx.lineTo(cx,h); ctx.stroke();
+      if(tokB>=0){
+        const pa=PCA[WORDS[tokA]], pb=PCA[WORDS[tokB]];
+        ctx.strokeStyle='rgba(201,214,226,.35)'; ctx.lineWidth=1;
+        ctx.setLineDash([4,4]);
+        ctx.beginPath();
+        ctx.moveTo(cx+pa[0]*s,cy-pa[1]*s);
+        ctx.lineTo(cx+pb[0]*s,cy-pb[1]*s);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.font='12px sans-serif'; ctx.textAlign='center';
+      WORDS.forEach((wd,i)=>{
+        const p=PCA[wd];
+        const x=cx+p[0]*s, y=cy-p[1]*s;
+        const isA=i===tokA, isB=i===tokB;
+        ctx.fillStyle= isA?'#8fe3f0': isB?'#f0b35e':'rgba(201,214,226,.55)';
+        ctx.beginPath(); ctx.arc(x,y,isA||isB?5:3,0,6.2832); ctx.fill();
+        ctx.fillStyle= isA?'#8fe3f0': isB?'#f0b35e':'rgba(147,166,185,.8)';
+        ctx.fillText(wd,x,y-9);
+      });
+      ctx.fillStyle='rgba(93,114,136,.7)';
+      ctx.font='9px monospace'; ctx.textAlign='left';
+      ctx.fillText('※'+DIMS+'次元→2次元。距離は目安（PCAで潰した影）・タップで比較語を選択',10,h-8);
+    }
+
+    // ---- per-dimension angle strip (aligned with scan columns) ----
+    if(view==='scan'){
+      const aw=acv.clientWidth, ah=acv.clientHeight;
+      actx.clearRect(0,0,aw,ah);
+      const top=16, bot=ah-14;
+      actx.strokeStyle='rgba(28,39,57,.9)'; actx.lineWidth=1;
+      actx.beginPath();
+      actx.moveTo(0,bot); actx.lineTo(aw,bot);
+      actx.moveTo(0,top); actx.lineTo(aw,top);
+      actx.stroke();
+      actx.setLineDash([3,5]);
+      actx.beginPath(); actx.moveTo(0,(top+bot)/2); actx.lineTo(aw,(top+bot)/2); actx.stroke();
+      actx.setLineDash([]);
+      actx.fillStyle='rgba(93,114,136,.8)'; actx.font='8px monospace'; actx.textAlign='left';
+      actx.fillText('不一致',2,top+8); actx.fillText('一致',2,bot-3);
+      if(B){
+        const colW=aw/WINDOW;
+        const start=pos-WINDOW/2, curDim=Math.floor(pos);
+        const sim=cosSim(WORDS[tokA],WORDS[tokB]);
+        const thetaDeg=Math.acos(Math.max(-1,Math.min(1,sim)))*180/Math.PI;
+        const ty=bot-(Math.min(thetaDeg,90)/90)*(bot-top);
+        actx.strokeStyle='rgba(201,214,226,.6)'; actx.lineWidth=1;
+        actx.beginPath(); actx.moveTo(0,ty); actx.lineTo(aw,ty); actx.stroke();
+        actx.fillStyle='rgba(201,214,226,.9)'; actx.textAlign='right';
+        actx.fillText('合計後 θ='+thetaDeg.toFixed(1)+'°', aw-4, ty-3);
+        for(let i=0;i<=WINDOW;i++){
+          const d=Math.floor(start)+i;
+          if(d<0||d>=DIMS) continue;
+          const a=A[d], b=B[d];
+          let t2=Math.atan2(b,a)*180/Math.PI;
+          let delta=((t2-45)%180+180)%180;
+          if(delta>90) delta=180-delta;
+          const x=(d-start)*colW+colW/2;
+          const y=bot-(delta/90)*(bot-top);
+          const agree=1-delta/90;
+          const r=210+Math.round((143-210)*agree);
+          const g=120+Math.round((227-120)*agree);
+          const b2=90+Math.round((240-90)*agree);
+          const isCur=d===curDim;
+          actx.fillStyle=`rgba(${r},${g},${b2},${isCur?1:0.85})`;
+          actx.beginPath(); actx.arc(x,y,isCur?4:2.4,0,6.2832); actx.fill();
+          if(isCur){
+            actx.strokeStyle=`rgba(${r},${g},${b2},.4)`; actx.lineWidth=1;
+            actx.beginPath(); actx.arc(x,y,7,0,6.2832); actx.stroke();
+          }
+        }
+      } else {
+        actx.fillStyle='rgba(93,114,136,.7)'; actx.font='10px monospace';
+        actx.textAlign='center';
+        actx.fillText('比較語を選ぶと各次元の一致度を表示', aw/2, (top+bot)/2+3);
+      }
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  setModel(0); resize(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
