@@ -1,0 +1,47 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "Dockerfile"
+      - ".github/workflows/deploy.yml"
+
+env:
+  PROJECT_ID: sobu-lab
+  REGION: asia-northeast1
+  IMAGE: asia-northeast1-docker.pkg.dev/sobu-lab/cloud-run-images/emb-lens
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: emb-lens
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          flags: --allow-unauthenticated --port=8080 --memory=2Gi --cpu=2
+          env_vars: |
+            CORS_ORIGINS=${{ vars.CORS_ORIGINS }}

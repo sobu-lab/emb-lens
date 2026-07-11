@@ -41,12 +41,40 @@ python extract.py
 - 個々の次元の「意味」の解釈は目的にしていません。意味は複数次元にまたがる
   方向として分散しており、言語化を経由せずパターンとして見ることを狙っています
 
+## APIサーバー（任意の単語を動的にエンコード）
+
+事前生成した静的ページではなく、ブラウザから任意の単語を送って
+その場でエンコードしたい場合は `server/app.py`（FastAPI）を使います。
+
+```bash
+pip install -r server/requirements.txt
+uvicorn server.app:app --reload
+# POST /encode  { "words": ["猫", "犬", ...] }
+# → viewer_template.html の DATA と同じ形式のJSONを返す
+```
+
+### Cloud Runへのデプロイ
+
+`Dockerfile` はビルド時にモデル重みをイメージへ焼き込むため、
+起動時のダウンロードが発生しません。`main` への push で
+`.github/workflows/deploy.yml` が Artifact Registry へのビルド・push と
+Cloud Run へのデプロイを行います（Workload Identity Federationで認証）。
+
+- リポジトリ変数 `CORS_ORIGINS`（Settings → Secrets and variables →
+  Actions → Variables）にビューアを配信するオリジンを設定してください
+  （例: `https://xxx.netlify.app`）。未設定の場合は全オリジンを許可します
+- 必要なSecrets: `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`
+  （Organization Secretとして他リポジトリと共有、またはこのリポジトリに個別登録）
+
 ## 構成
 
 ```
-extract.py            # モデルでエンコードして viewer.html を生成
-viewer_template.html  # ビューアのテンプレート（次元数可変）
-viewer_sample.html    # 事前生成済みデモ
+extract.py             # モデルでエンコードして viewer.html を生成（静的・事前生成用）
+viewer_template.html   # ビューアのテンプレート（次元数可変）
+viewer_sample.html     # 事前生成済みデモ
+server/app.py          # 任意の単語を動的にエンコードするFastAPI
+Dockerfile             # server/app.py 用（Cloud Run向け、モデルをビルド時に焼き込み）
+.github/workflows/deploy.yml  # main push で Cloud Run へ自動デプロイ
 ```
 
 ## License
