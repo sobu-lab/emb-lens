@@ -61,10 +61,23 @@ uvicorn server.app:app --reload
 Cloud Run へのデプロイを行います（Workload Identity Federationで認証）。
 
 - リポジトリ変数 `CORS_ORIGINS`（Settings → Secrets and variables →
-  Actions → Variables）にビューアを配信するオリジンを設定してください
-  （例: `https://xxx.netlify.app`）。未設定の場合は全オリジンを許可します
+  Actions → Variables）に、下記のGitHub PagesのURLを設定してください
+  （例: `https://sobu-lab.github.io`）。未設定の場合は全オリジンを許可します
 - 必要なSecrets: `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`
   （Organization Secretとして他リポジトリと共有、またはこのリポジトリに個別登録）
+
+## GitHub Pages（みんなで見られるビューア）
+
+`docs/index.html` が単語入力付きのビューアです。単語を送信すると
+上記のCloud Run APIを呼び出してその場でエンコードします。
+
+- 初回のみ Settings → Pages → Source を「GitHub Actions」に設定してください
+- `main` への push（`docs/**` 変更時）で `.github/workflows/pages.yml` が自動デプロイします
+- リポジトリ変数 `API_BASE_URL` に、Cloud RunデプロイでできたサービスURL
+  （例: `https://emb-lens-xxxxx-an.a.run.app`）を設定してください。
+  ビルド時に `docs/index.html` 内の `__API_BASE__` をこの値に置換します
+- 公開後のURLは `https://<org>.github.io/emb-lens/` になります
+  （このURLを `CORS_ORIGINS` に設定してください）
 
 ## 構成
 
@@ -74,7 +87,9 @@ viewer_template.html   # ビューアのテンプレート（次元数可変）
 viewer_sample.html     # 事前生成済みデモ
 server/app.py          # 任意の単語を動的にエンコードするFastAPI
 Dockerfile             # server/app.py 用（Cloud Run向け、モデルをビルド時に焼き込み）
+docs/index.html         # GitHub Pages公開用（単語入力→Cloud Run API呼び出し）
 .github/workflows/deploy.yml  # main push で Cloud Run へ自動デプロイ
+.github/workflows/pages.yml   # main push で GitHub Pages へ自動デプロイ
 ```
 
 ## License
