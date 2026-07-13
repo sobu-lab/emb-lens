@@ -19,10 +19,13 @@ MODELS = [
     ("mE5-small", "intfloat/multilingual-e5-small"),
 ]
 
-# e5系のプレフィックス（extract.py と同じ扱い）
+# モデル別のプレフィックス
+# ruri-v3は1+3 prefixスキームを採用（https://huggingface.co/cl-nagoya/ruri-v3-130m）。
+# 単語=トピックとして比較するため "トピック: "（分類・クラスタリング・トピック情報用）を使用
 # mE5はsemantic similarityのような対称タスクでは両側に "query: " を使う仕様
 # (https://huggingface.co/intfloat/multilingual-e5-small)
 PREFIX = {
+    "ruri-v3-130m": "トピック: ",
     "mE5-small": "query: ",
 }
 
