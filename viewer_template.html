@@ -99,6 +99,7 @@
     同じ単語ペアでも<b>モデルを切り替えると類似度・角度・地図が変わります</b>。
     絶対値ではなく「近いペアと遠いペアの差がどれだけ開くか（レンジの広さ）」に注目すると、
     自分の用途に合うモデルの癖が見えます。
+    ▲▼の点は表示スケール外の外れ値次元（実際の値はもっと大きい）です。
   </div>
 </div>
 
@@ -110,11 +111,21 @@ const DATA = __DATA__;
   let modelIdx = 0;
 
   // per-model accessors
-  let M, DIMS, V, PCA, MAXABS, WINDOW;
+  let M, DIMS, V, PCA, MAXABS, WINDOW, DISPMAX;
+  function computeDispMax(){
+    // 表示スケール用: 外れ値次元（rogue dimension）に引っ張られないよう
+    // 全次元・全語の|値|の上位1%を切り落としたところをスケール基準にする
+    const vals = [];
+    for (const w of WORDS) { const v = V[w]; for (let i=0;i<DIMS;i++) vals.push(Math.abs(v[i])); }
+    vals.sort((a,b)=>a-b);
+    const idx = Math.min(vals.length-1, Math.floor(vals.length*0.99));
+    return vals[idx] || MAXABS || 1;
+  }
   function setModel(i){
     modelIdx = i;
     M = DATA.models[MODELS[i]];
     DIMS = M.dims; V = M.vectors; PCA = M.pca; MAXABS = M.maxabs;
+    DISPMAX = computeDispMax();
     WINDOW = Math.min(24, DIMS);
     pos = Math.min(pos, DIMS-1);
     document.getElementById('modelSub').textContent =
@@ -230,17 +241,36 @@ const DATA = __DATA__;
   });
 
   // ---- draw helpers ----
+  function drawClipMarker(c2d, x, y, dir, color, size){
+    // dir>0: 上方向にクリップ（本当の値はもっと上）/ dir<0: 下方向にクリップ
+    c2d.fillStyle = color;
+    c2d.beginPath();
+    if (dir > 0) {
+      c2d.moveTo(x, y-size); c2d.lineTo(x-size, y+size*0.7); c2d.lineTo(x+size, y+size*0.7);
+    } else {
+      c2d.moveTo(x, y+size); c2d.lineTo(x-size, y-size*0.7); c2d.lineTo(x+size, y-size*0.7);
+    }
+    c2d.closePath();
+    c2d.fill();
+  }
   function drawSeries(c2d, vec, x0, xStep, mid, amp, color, dotR, start, count, curDim, glow){
     for(let i=0;i<=count;i++){
       const d=Math.floor(start)+i;
       if(d<0||d>=DIMS) continue;
       const x=x0+(d-start)*xStep;
-      const y=mid-(vec[d]/MAXABS)*amp;
+      const raw=vec[d]/DISPMAX;
+      const clamp=Math.max(-1,Math.min(1,raw));
+      const clipped=raw>1||raw<-1;
+      const y=mid-clamp*amp;
       const isCur=d===curDim;
-      c2d.fillStyle=color.replace('ALPHA', isCur?'1':'0.8');
-      c2d.beginPath();
-      c2d.arc(x,y,isCur?dotR*1.9:dotR,0,6.2832);
-      c2d.fill();
+      if(clipped){
+        drawClipMarker(c2d, x, y, clamp, color.replace('ALPHA', isCur?'1':'0.9'), isCur?dotR*2.4:dotR*1.7);
+      } else {
+        c2d.fillStyle=color.replace('ALPHA', isCur?'1':'0.8');
+        c2d.beginPath();
+        c2d.arc(x,y,isCur?dotR*1.9:dotR,0,6.2832);
+        c2d.fill();
+      }
       if(isCur&&glow){
         c2d.strokeStyle=color.replace('ALPHA','0.4'); c2d.lineWidth=1;
         c2d.beginPath(); c2d.arc(x,y,dotR*3.2,0,6.2832); c2d.stroke();
@@ -319,18 +349,24 @@ const DATA = __DATA__;
         ctx.setLineDash([]);
         ctx.fillStyle='rgba(143,227,240,.6)'; ctx.font='9px monospace'; ctx.textAlign='left';
         ctx.fillText('一致線', cx+s*0.5, cy-s*0.5-8);
-        const scale=s/MAXABS;
+        const scale=s/DISPMAX;
         for(let k=0;k<DIMS;k++){
-          const x=cx+A[k]*scale, y=cy-B[k]*scale;
+          const rawX=A[k]*scale, rawY=B[k]*scale;
+          const clipped = Math.abs(rawX)>s || Math.abs(rawY)>s;
+          const x=cx+Math.max(-s,Math.min(s,rawX)), y=cy-Math.max(-s,Math.min(s,rawY));
           const agree = 1 - Math.min(1, Math.abs(A[k]-B[k])/(MAXABS*0.8));
           const r=210+Math.round((143-210)*agree);
           const g=120+Math.round((227-120)*agree);
           const b2=90+Math.round((240-90)*agree);
           ctx.fillStyle=`rgba(${r},${g},${b2},.85)`;
           ctx.beginPath(); ctx.arc(x,y,2.4,0,6.2832); ctx.fill();
+          if(clipped){
+            ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=1.2;
+            ctx.beginPath(); ctx.arc(x,y,4.4,0,6.2832); ctx.stroke();
+          }
         }
         ctx.fillStyle='rgba(93,114,136,.7)'; ctx.font='9px monospace'; ctx.textAlign='left';
-        ctx.fillText('1点＝1次元（全'+DIMS+'点）。一致線に沿うほど2語は近い', 10, h-8);
+        ctx.fillText('1点＝1次元（全'+DIMS+'点）。▲▼=表示範囲外の外れ値・白丸=範囲外にクランプ。一致線に沿うほど2語は近い', 10, h-8);
       }
     }
     else { // map view (PCA)
