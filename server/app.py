@@ -20,8 +20,10 @@ MODELS = [
 ]
 
 # e5系のプレフィックス（extract.py と同じ扱い）
+# mE5はsemantic similarityのような対称タスクでは両側に "query: " を使う仕様
+# (https://huggingface.co/intfloat/multilingual-e5-small)
 PREFIX = {
-    # "mE5-small": "query: ",
+    "mE5-small": "query: ",
 }
 
 MAX_WORDS = 64
