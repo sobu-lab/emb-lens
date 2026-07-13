@@ -32,6 +32,46 @@
   #wordStatus{font-size:10px;color:var(--muted);width:100%}
   #wordStatus.err{color:#f08f8f}
 
+  #modeBar{display:flex;gap:6px;padding:8px 14px 0}
+  #modeBar button{height:28px;font-size:11px}
+
+  #vizArea{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+
+  #ragPanel,#corpusPanel{padding:10px 14px;border-bottom:1px solid var(--line);
+    display:flex;flex-direction:column;gap:8px;overflow-y:auto;flex:1}
+  .rowWrap{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+  #ragQuery,#corpusModel{background:transparent;color:var(--text);font-family:inherit;
+    font-size:12px;border:1px solid var(--line);border-radius:6px;height:34px;padding:0 10px}
+  #ragQuery{flex:1;min-width:180px;user-select:text;-webkit-user-select:text}
+  #ragPassageInput,#corpusInput{width:100%;background:transparent;color:var(--text);
+    font-family:inherit;font-size:12px;border:1px solid var(--line);border-radius:6px;
+    padding:8px 10px;resize:vertical;user-select:text;-webkit-user-select:text}
+  #ragPassageInput{height:56px}
+  #corpusInput{height:120px}
+  #ragStatus,#corpusStatus{font-size:10px;color:var(--muted)}
+  #ragStatus.err,#corpusStatus.err{color:#f08f8f}
+
+  .ragCard{display:flex;align-items:center;gap:8px;padding:6px 8px;
+    border:1px solid var(--line);border-radius:6px;font-size:11px}
+  .ragCardText{flex:1;line-height:1.4}
+  .ragDel{height:26px;font-size:10px;padding:0 8px}
+
+  .ragModelBlock{border:1px solid var(--line);border-radius:6px;padding:8px;margin-bottom:8px}
+  .ragModelTitle{font-size:11px;color:var(--green);font-weight:600;margin-bottom:6px}
+  .ragRow{display:flex;align-items:center;gap:8px;font-size:11px;padding:3px 0}
+  .ragRow.correct{color:var(--amber)}
+  .ragRank{min-width:34px;color:var(--muted)}
+  .ragScore{min-width:44px;font-weight:600}
+  .ragText{flex:1;line-height:1.4}
+  .ragMark{font-weight:700}
+  .ragSummary{font-size:10px;color:var(--muted);margin-top:6px;padding-top:6px;
+    border-top:1px solid var(--line)}
+
+  .moreNote{font-size:10px;color:var(--muted);align-self:center;padding:0 6px;flex:none}
+
+  #chunkPreview{padding:6px 16px 0;font-size:10px;line-height:1.6;color:var(--text)}
+  #chunkPreview .a{color:var(--cyan)} #chunkPreview .b{color:var(--amber)}
+
   #readout{padding:8px 16px 0;display:flex;align-items:baseline;gap:14px;min-height:44px}
   #dimNum{font-size:24px;color:var(--amber);font-weight:600;min-width:104px}
   #simBox{font-size:12px;line-height:1.5}
@@ -78,45 +118,81 @@
   <div class="sub" id="modelSub"></div>
 </header>
 
+<div id="modeBar">
+  <button id="modeCompare" class="on">比較</button>
+  <button id="modeRag">RAG検索チェック</button>
+  <button id="modeCorpus">コーパス地図</button>
+</div>
+
 <div id="wordPanel">
   <input id="wordInput" type="text" placeholder="比較したい単語をカンマ区切りで入力（例: 猫,犬,鳥）">
   <button id="analyzeBtn">解析</button>
   <div id="wordStatus"></div>
 </div>
 
-<div id="readout">
-  <div id="dimNum">dim 001</div>
-  <div id="simBox"></div>
-</div>
-
-<div id="stage"><canvas id="cv"></canvas></div>
-
-<div id="angle">
-  <canvas id="angleCv"></canvas>
-  <div id="angleHint">各次元の一致度（下=一致 / 上=逆方向）・横線=2語全体の類似度をθに換算した参考線</div>
-</div>
-
-<div id="strip">
-  <canvas id="stripCv"></canvas>
-  <div id="stripHint" >全次元（なぞって移動）</div>
-</div>
-
-<div id="controls">
-  <div class="row"><span class="cap">モデル</span><div class="chips" id="mdlBtns"></div></div>
-  <div class="row" id="viewBtns">
-    <span class="cap">表示</span>
-    <button id="vScan" class="on">点列</button>
-    <button id="vAng">一致度</button>
-    <button id="vMap">地図</button>
-    <button id="playBtn" class="on" style="margin-left:auto">⏸</button>
+<div id="ragPanel" style="display:none">
+  <input id="ragQuery" type="text" placeholder="クエリ（質問文）を入力（例: 瑠璃色はどんな色？）">
+  <div class="rowWrap">
+    <textarea id="ragPassageInput" placeholder="文書チャンクを入力して「追加」"></textarea>
+    <button id="ragAddBtn">追加</button>
   </div>
-  <div class="row"><span class="cap">語</span><div class="chips" id="tokBtns"></div></div>
-  <div class="row"><span class="cap">比較</span><div class="chips" id="cmpBtns"></div></div>
-  <div id="desc">
-    同じ単語ペアでも<b>モデルを切り替えると類似度・角度・地図が変わります</b>。
-    絶対値ではなく「近いペアと遠いペアの差がどれだけ開くか（レンジの広さ）」に注目すると、
-    自分の用途に合うモデルの癖が見えます。
-    ▲▼の点は表示スケール外の外れ値次元（実際の値はもっと大きい）です。
+  <div id="ragPassageList"></div>
+  <div class="rowWrap">
+    <button id="ragSearchBtn">検索</button>
+    <div id="ragStatus"></div>
+  </div>
+  <div id="ragResults"></div>
+</div>
+
+<div id="corpusPanel" style="display:none">
+  <textarea id="corpusInput" placeholder="文書チャンクを貼り付け（チャンクは空行または --- で区切る）"></textarea>
+  <div class="rowWrap">
+    <select id="corpusModel">
+      <option value="ruri-v3-130m">ruri-v3-130m</option>
+      <option value="mE5-small">mE5-small</option>
+    </select>
+    <button id="corpusBtn">地図を作成</button>
+    <div id="corpusStatus"></div>
+  </div>
+</div>
+
+<div id="vizArea">
+  <div id="readout">
+    <div id="dimNum">dim 001</div>
+    <div id="simBox"></div>
+  </div>
+
+  <div id="chunkPreview" style="display:none"></div>
+
+  <div id="stage"><canvas id="cv"></canvas></div>
+
+  <div id="angle">
+    <canvas id="angleCv"></canvas>
+    <div id="angleHint">各次元の一致度（下=一致 / 上=逆方向）・横線=2語全体の類似度をθに換算した参考線</div>
+  </div>
+
+  <div id="strip">
+    <canvas id="stripCv"></canvas>
+    <div id="stripHint" >全次元（なぞって移動）</div>
+  </div>
+
+  <div id="controls">
+    <div class="row"><span class="cap">モデル</span><div class="chips" id="mdlBtns"></div></div>
+    <div class="row" id="viewBtns">
+      <span class="cap">表示</span>
+      <button id="vScan" class="on">点列</button>
+      <button id="vAng">一致度</button>
+      <button id="vMap">地図</button>
+      <button id="playBtn" class="on" style="margin-left:auto">⏸</button>
+    </div>
+    <div class="row"><span class="cap">語</span><div class="chips" id="tokBtns"></div></div>
+    <div class="row"><span class="cap">比較</span><div class="chips" id="cmpBtns"></div></div>
+    <div id="desc">
+      同じ単語ペアでも<b>モデルを切り替えると類似度・角度・地図が変わります</b>。
+      絶対値ではなく「近いペアと遠いペアの差がどれだけ開くか（レンジの広さ）」に注目すると、
+      自分の用途に合うモデルの癖が見えます。
+      ▲▼の点は表示スケール外の外れ値次元（実際の値はもっと大きい）です。
+    </div>
   </div>
 </div>
 
@@ -211,6 +287,162 @@ let DATA = null, WORDS = [], MODELS = [];
   analyzeBtn.onclick = analyze;
   wordInput.addEventListener('keydown', e=>{ if(e.key==='Enter') analyze(); });
 
+  // ---- mode switching ----
+  const modeCompare=document.getElementById('modeCompare');
+  const modeRag=document.getElementById('modeRag');
+  const modeCorpus=document.getElementById('modeCorpus');
+  const wordPanel=document.getElementById('wordPanel');
+  const ragPanel=document.getElementById('ragPanel');
+  const corpusPanel=document.getElementById('corpusPanel');
+  const vizArea=document.getElementById('vizArea');
+  const allModeBtns=[modeCompare,modeRag,modeCorpus];
+  function setMode(m,btn){
+    allModeBtns.forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    wordPanel.style.display = m==='compare' ? '' : 'none';
+    ragPanel.style.display = m==='rag' ? '' : 'none';
+    corpusPanel.style.display = m==='corpus' ? '' : 'none';
+    const showViz = m!=='rag';
+    vizArea.style.display = showViz ? '' : 'none';
+    if(showViz) resize();
+  }
+  modeCompare.onclick=()=>setMode('compare',modeCompare);
+  modeRag.onclick=()=>setMode('rag',modeRag);
+  modeCorpus.onclick=()=>setMode('corpus',modeCorpus);
+
+  // ---- RAG検索チェック ----
+  const ragQuery=document.getElementById('ragQuery');
+  const ragPassageInput=document.getElementById('ragPassageInput');
+  const ragAddBtn=document.getElementById('ragAddBtn');
+  const ragPassageList=document.getElementById('ragPassageList');
+  const ragSearchBtn=document.getElementById('ragSearchBtn');
+  const ragStatus=document.getElementById('ragStatus');
+  const ragResults=document.getElementById('ragResults');
+  let ragPassages=[], ragCorrectIndex=null;
+
+  function renderRagPassages(){
+    ragPassageList.innerHTML='';
+    ragPassages.forEach((p,i)=>{
+      const card=document.createElement('div');
+      card.className='ragCard';
+      const radio=document.createElement('input');
+      radio.type='radio'; radio.name='ragCorrect'; radio.checked=(ragCorrectIndex===i);
+      radio.onchange=()=>{ ragCorrectIndex=i; };
+      const label=document.createElement('span');
+      label.className='ragCardText';
+      label.textContent=p.length>80?p.slice(0,80)+'…':p;
+      const del=document.createElement('button');
+      del.className='ragDel'; del.textContent='削除';
+      del.onclick=()=>{
+        ragPassages.splice(i,1);
+        if(ragCorrectIndex===i) ragCorrectIndex=null;
+        else if(ragCorrectIndex!==null && ragCorrectIndex>i) ragCorrectIndex--;
+        renderRagPassages();
+      };
+      card.append(radio,label,del);
+      ragPassageList.appendChild(card);
+    });
+  }
+  ragAddBtn.onclick=()=>{
+    const t=ragPassageInput.value.trim();
+    if(!t) return;
+    ragPassages.push(t);
+    ragPassageInput.value='';
+    renderRagPassages();
+  };
+
+  function renderRagResults(data){
+    ragResults.innerHTML='';
+    Object.keys(data.models).forEach(name=>{
+      const m=data.models[name];
+      const block=document.createElement('div');
+      block.className='ragModelBlock';
+      const title=document.createElement('div');
+      title.className='ragModelTitle'; title.textContent=name;
+      block.appendChild(title);
+      m.ranking.forEach((r,rank)=>{
+        const row=document.createElement('div');
+        row.className='ragRow';
+        const isCorrect = data.correct_index!==null && r.index===data.correct_index;
+        if(isCorrect) row.classList.add('correct');
+        const text=data.passages[r.index];
+        row.innerHTML = `<span class="ragRank">${rank+1}位</span>` +
+          `<span class="ragScore">${r.score.toFixed(3)}</span>` +
+          `<span class="ragText">${(text.length>60?text.slice(0,60)+'…':text)}</span>` +
+          (isCorrect ? `<span class="ragMark">${rank===0?'✓':'✗'}</span>` : '');
+        block.appendChild(row);
+      });
+      if(data.correct_index!==null){
+        const summary=document.createElement('div');
+        summary.className='ragSummary';
+        summary.textContent='正解チャンクの順位: '+m.correct_rank+'位'+(m.correct_rank===1?' ✓':' ✗');
+        block.appendChild(summary);
+      }
+      ragResults.appendChild(block);
+    });
+  }
+
+  async function runRagSearch(){
+    const query=ragQuery.value.trim();
+    if(!query){ ragStatus.className='err'; ragStatus.textContent='クエリを入力してください'; return; }
+    if(ragPassages.length<1){ ragStatus.className='err'; ragStatus.textContent='チャンクを1件以上追加してください'; return; }
+    ragSearchBtn.disabled=true;
+    ragStatus.className=''; ragStatus.textContent='検索中…';
+    try{
+      const res=await fetch(API_BASE+'/rank',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({query, passages: ragPassages, correct_index: ragCorrectIndex}),
+      });
+      if(!res.ok){
+        const body=await res.json().catch(()=>({}));
+        throw new Error(body.detail || ('HTTP '+res.status));
+      }
+      const data=await res.json();
+      renderRagResults(data);
+      ragStatus.textContent='';
+    } catch(e){
+      ragStatus.className='err'; ragStatus.textContent='エラー: '+e.message;
+    } finally {
+      ragSearchBtn.disabled=false;
+    }
+  }
+  ragSearchBtn.onclick=runRagSearch;
+
+  // ---- コーパス地図 ----
+  const corpusInput=document.getElementById('corpusInput');
+  const corpusModel=document.getElementById('corpusModel');
+  const corpusBtn=document.getElementById('corpusBtn');
+  const corpusStatus=document.getElementById('corpusStatus');
+
+  async function runCorpusMap(){
+    const chunks=corpusInput.value.split(/\n\s*---\s*\n|\n{2,}/).map(c=>c.trim()).filter(Boolean);
+    if(chunks.length<2){
+      corpusStatus.className='err';
+      corpusStatus.textContent='チャンクを2件以上（空行または---で区切って）入力してください';
+      return;
+    }
+    corpusBtn.disabled=true;
+    corpusStatus.className=''; corpusStatus.textContent='解析中…（件数が多いと時間がかかります）';
+    try{
+      const res=await fetch(API_BASE+'/corpus_map',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({chunks, model: corpusModel.value}),
+      });
+      if(!res.ok){
+        const body=await res.json().catch(()=>({}));
+        throw new Error(body.detail || ('HTTP '+res.status));
+      }
+      const data=await res.json();
+      loadData(data);
+      corpusStatus.textContent='';
+    } catch(e){
+      corpusStatus.className='err'; corpusStatus.textContent='エラー: '+e.message;
+    } finally {
+      corpusBtn.disabled=false;
+    }
+  }
+  corpusBtn.onclick=runCorpusMap;
+
   // ---- UI ----
   const mdlBtns=document.getElementById('mdlBtns');
   const tokBtns=document.getElementById('tokBtns');
@@ -230,6 +462,7 @@ let DATA = null, WORDS = [], MODELS = [];
     stripEl.style.display=show; angleEl.style.display=show;
     resize(); }
 
+  const DISPLAY_LIMIT = 50; // チップボタン（語/比較）に出す件数の上限。地図では全件タップ選択可能
   function buildBtns(){
     mdlBtns.innerHTML=''; tokBtns.innerHTML=''; cmpBtns.innerHTML='';
     MODELS.forEach((nm,i)=>{
@@ -239,19 +472,26 @@ let DATA = null, WORDS = [], MODELS = [];
       b.onclick=()=>setModel(i);
       mdlBtns.appendChild(b);
     });
-    WORDS.forEach((wd,i)=>{
+    const displayWords = WORDS.slice(0, DISPLAY_LIMIT);
+    displayWords.forEach((wd,i)=>{
       const b=document.createElement('button');
       b.textContent=wd;
       if(i===tokA) b.classList.add('on');
       b.onclick=()=>{ tokA=i; if(tokB===i) tokB=-1; buildBtns(); };
       tokBtns.appendChild(b);
     });
+    if(WORDS.length>DISPLAY_LIMIT){
+      const note=document.createElement('span');
+      note.className='moreNote';
+      note.textContent='+'+(WORDS.length-DISPLAY_LIMIT)+'件（地図でタップして選択）';
+      tokBtns.appendChild(note);
+    }
     const off=document.createElement('button');
     off.className='cmp'; off.textContent='なし';
     if(tokB<0) off.classList.add('on');
     off.onclick=()=>{ tokB=-1; buildBtns(); };
     cmpBtns.appendChild(off);
-    WORDS.forEach((wd,i)=>{
+    displayWords.forEach((wd,i)=>{
       if(i===tokA) return;
       const b=document.createElement('button');
       b.className='cmp'; b.textContent=wd;
@@ -259,6 +499,17 @@ let DATA = null, WORDS = [], MODELS = [];
       b.onclick=()=>{ tokB=(tokB===i?-1:i); buildBtns(); };
       cmpBtns.appendChild(b);
     });
+    updateChunkPreview();
+  }
+
+  const chunkPreview=document.getElementById('chunkPreview');
+  function updateChunkPreview(){
+    if(!DATA || !DATA.preview){ chunkPreview.style.display='none'; return; }
+    chunkPreview.style.display='';
+    const aText=DATA.preview[WORDS[tokA]] || '';
+    const bText=tokB>=0 ? (DATA.preview[WORDS[tokB]] || '') : '';
+    chunkPreview.innerHTML = `<div><span class="a">${WORDS[tokA]}</span> ${aText}</div>` +
+      (tokB>=0 ? `<div><span class="b">${WORDS[tokB]}</span> ${bText}</div>` : '');
   }
   playBtn.onclick=()=>{ playing=!playing;
     playBtn.classList.toggle('on',playing);
