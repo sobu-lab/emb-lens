@@ -36,11 +36,10 @@ WORDS = [
     "パソコン", "インターネット", "ロボット", "人工知能",
 ]
 
-# 注意: e5系は本来 "query: " プレフィックスを付ける想定のモデルです。
-# 単語同士の相対比較ならプレフィックスなしでも傾向は掴めますが、
-# 実運用と同じ条件で見たい場合は下の PREFIX にモデル別の接頭辞を設定してください。
+# mE5はsemantic similarityのような対称タスクでは両側に "query: " を使う仕様
+# (https://huggingface.co/intfloat/multilingual-e5-small)
 PREFIX = {
-    # "mE5-small": "query: ",
+    "mE5-small": "query: ",
 }
 
 
